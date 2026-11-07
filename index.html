@@ -432,6 +432,9 @@ function showPage(id){
  window.scrollTo({top:0,behavior:"smooth"});
 }
 
+// 👉 這裡修復了上方導覽列的點擊功能
+document.querySelectorAll(".navbtn[data-page]").forEach(b=>b.addEventListener("click",()=>showPage(b.dataset.page)));
+
 function checkAuthPage(){
   if(window.currentUserEmail) {
     showPage('profile');
