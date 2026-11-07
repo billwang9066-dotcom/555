@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>暮光選物｜互動購物平台 (純 Firestore + 歷史訂單版)</title>
+<title>暮光選物｜Firestore 訂單儲存修復版</title>
 <style>
 :root {
   --ink: #20242b; --muted: #78808d; --paper: #f5f3ef; --card: #fff; 
@@ -157,6 +157,7 @@ footer { text-align: center; color: var(--muted); padding: 25px; font-size: 12px
 <!-- 登入/註冊頁面 -->
 <section id="auth" class="page">
   <div class="toolbar"><h2 data-i18n="auth-title">會員中心</h2><span class="tag">Login / Register</span></div>
+  <div class="notice">此純 Firestore 示範版沿用舊會員資料格式，密碼仍以明文儲存，不適合公開部署或使用真實密碼。Firestore 本身不提供安全的會員身分驗證。</div>
   <div class="grid2">
     <div class="panel">
       <h3 data-i18n="auth-login">會員登入</h3>
@@ -194,7 +195,7 @@ footer { text-align: center; color: var(--muted); padding: 25px; font-size: 12px
 
   <!-- 新增：歷史訂單區塊 -->
   <div class="panel" style="margin-top: 18px;">
-    <h3 data-i18n="prof-history">歷史購買紀錄</h3>
+    <div class="row"><h3 data-i18n="prof-history">歷史購買紀錄</h3><button class="ghost" onclick="window.renderUserOrders()">重新讀取</button></div>
     <div id="profOrdersList" style="overflow:auto; max-height: 250px;">
       <p class="muted">請先登入以查看紀錄</p>
     </div>
@@ -303,13 +304,22 @@ footer { text-align: center; color: var(--muted); padding: 25px; font-size: 12px
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
   window.currentUserEmail = null;
+  // 僅記錄最近使用的帳號名稱，不視為已驗證登入。
+  window.lastAccountEmail = sessionStorage.getItem("twilightLastEmail") || "";
+  document.getElementById("loginEmail").value = window.lastAccountEmail;
 
   // 建立全域方法，讓一般的 <script> 可以輕鬆操控 Firestore 訂單庫
   window.dbAddOrder = async (order) => { await setDoc(doc(db, "orders", order.id), order); };
   window.dbGetMyOrders = async (email) => {
-    const q = query(collection(db, "orders"), where("userEmail", "==", email));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data());
+    // 舊訂單保留原 Email，兼容新訂單使用的小寫 Email。
+    const variants = [...new Set([email.trim(), email.trim().toLowerCase()])];
+    const found = new Map();
+    for (const address of variants) {
+      const q = query(collection(db, "orders"), where("userEmail", "==", address));
+      const snap = await getDocs(q);
+      snap.docs.forEach(d => found.set(d.id, { id: d.id, ...d.data() }));
+    }
+    return [...found.values()];
   };
   window.dbGetAllOrders = async () => {
     const snap = await getDocs(collection(db, "orders"));
@@ -411,7 +421,8 @@ const products = [
  {id:4,name:"手作編織提袋",price:720,stock:15,desc:"輕巧實用，日常外出好搭配。"}
 ];
 let cart={}, orders=[], adminAuthed=false;
-const money=n=>"$"+Number(n).toLocaleString("zh-TW");
+const money=n=>"$"+Number(n || 0).toLocaleString("zh-TW");
+const escapeHtml=v=>String(v ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const imgSrc=id=>id+".jpg";
 
 function showPage(id){
@@ -499,7 +510,7 @@ document.getElementById("checkoutForm").addEventListener("submit", async e => {
 // --- 抓取與顯示個人歷史訂單 ---
 window.renderUserOrders = async () => {
   const list = document.getElementById("profOrdersList");
-  if (!window.currentUserEmail) return;
+  if (!window.currentUserEmail) { list.innerHTML = '<p class="muted">請先登入以查看紀錄</p>'; return; }
   list.innerHTML = `<p class="muted">${window.isEN ? 'Loading...' : '資料讀取中...'}</p>`;
   
   if (window.dbGetMyOrders) {
@@ -522,6 +533,8 @@ window.renderUserOrders = async () => {
       html += '</tbody></table>';
       list.innerHTML = html;
     } catch (e) { list.innerHTML = `<p class="danger">讀取失敗: ${e.message}</p>`; }
+  } else {
+    list.innerHTML = '<p class="muted">Firestore 仍在載入，請稍後重新進入個人中心。</p>';
   }
 };
 
